@@ -5,11 +5,11 @@ import os
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-# словарь: id -> уровень админа
-admin_levels = {}  # например {123456: 5}
+# уровни админов
+admin_levels = {}  # id -> уровень
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
-# начальные разрешения команд: команда -> минимальный уровень
+# права команд: команда -> минимальный уровень
 permissions = {
     'add_admin': 5,
     'remove_admin': 5,
@@ -18,12 +18,18 @@ permissions = {
     'mute': 2,
     'unmute': 2,
     'warn': 1,
-    'setperm': 5
+    'setperm': 5,
+    'admins': 1,
+    'setprefix': 1,
+    'removeprefix': 1,
+    'changeprefix': 1,
+    'prefixes': 1
 }
 
 banned = set()
 muted = set()
 warns = {}
+prefixes = {}  # id -> префикс
 
 def get_level(user_id):
     if user_id == OWNER_ID:
@@ -35,7 +41,7 @@ def check_perm(user_id, command):
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Привет! Я модерационный бот с уровнями администрации.")
+    bot.reply_to(msg, "Привет! Я модерационный бот с уровнями и префиксами.")
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(msg):
@@ -62,6 +68,21 @@ def remove_admin(msg):
     user_id = msg.reply_to_message.from_user.id
     admin_levels.pop(user_id, None)
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} больше не админ.")
+
+@bot.message_handler(commands=['admins'])
+def admins_list(msg):
+    if not check_perm(msg.from_user.id, 'admins'):
+        return bot.reply_to(msg, "Нет прав.")
+    text = "Список администраторов:\n"
+    text += f"- @{msg.from_user.username} (Вы — {get_level(msg.from_user.id)})\n"
+    for uid, level in admin_levels.items():
+        try:
+            user = bot.get_chat(uid)
+            uname = f"@{user.username}" if user.username else user.first_name
+        except:
+            uname = str(uid)
+        text += f"- {uname} (уровень {level})\n"
+    bot.reply_to(msg, text)
 
 @bot.message_handler(commands=['setperm'])
 def setperm(msg):
@@ -169,6 +190,62 @@ def warn(msg):
     warns[target_id] = warns.get(target_id, 0) + 1
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} получил предупреждение ({warns[target_id]}).")
 
+# ----------- ПРЕФИКСЫ -----------
+@bot.message_handler(commands=['setprefix'])
+def setprefix(msg):
+    if not check_perm(msg.from_user.id, 'setprefix'):
+        return bot.reply_to(msg, "Нет прав.")
+    if not msg.reply_to_message:
+        return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return bot.reply_to(msg, "Использование: /setprefix <префикс> (ответом на сообщение)")
+    prefix = parts[1]
+    uid = msg.reply_to_message.from_user.id
+    prefixes[uid] = prefix
+    bot.reply_to(msg, f"Префикс {prefix} установлен пользователю @{msg.reply_to_message.from_user.username}.")
+
+@bot.message_handler(commands=['removeprefix'])
+def removeprefix(msg):
+    if not check_perm(msg.from_user.id, 'removeprefix'):
+        return bot.reply_to(msg, "Нет прав.")
+    if not msg.reply_to_message:
+        return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
+    uid = msg.reply_to_message.from_user.id
+    prefixes.pop(uid, None)
+    bot.reply_to(msg, f"Префикс пользователя @{msg.reply_to_message.from_user.username} удалён.")
+
+@bot.message_handler(commands=['changeprefix'])
+def changeprefix(msg):
+    if not check_perm(msg.from_user.id, 'changeprefix'):
+        return bot.reply_to(msg, "Нет прав.")
+    if not msg.reply_to_message:
+        return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return bot.reply_to(msg, "Использование: /changeprefix <новый_префикс> (ответом на сообщение)")
+    prefix = parts[1]
+    uid = msg.reply_to_message.from_user.id
+    prefixes[uid] = prefix
+    bot.reply_to(msg, f"Префикс пользователя @{msg.reply_to_message.from_user.username} изменён на {prefix}.")
+
+@bot.message_handler(commands=['prefixes'])
+def prefixes_list(msg):
+    if not check_perm(msg.from_user.id, 'prefixes'):
+        return bot.reply_to(msg, "Нет прав.")
+    if not prefixes:
+        return bot.reply_to(msg, "Нет пользователей с префиксами.")
+    text = "Список пользователей с префиксами:\n"
+    for uid, pref in prefixes.items():
+        try:
+            user = bot.get_chat(uid)
+            uname = f"@{user.username}" if user.username else user.first_name
+        except:
+            uname = str(uid)
+        text += f"- {uname}: {pref}\n"
+    bot.reply_to(msg, text)
+
+# ---------------------------------
 @bot.message_handler(func=lambda m: True)
 def check_user(msg):
     if msg.from_user.id in banned or msg.from_user.id in muted:
