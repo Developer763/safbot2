@@ -5,48 +5,90 @@ import os
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-admins = set()
+# словарь: id -> уровень админа
+admin_levels = {}  # например {123456: 5}
+OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
+
+# начальные разрешения команд: команда -> минимальный уровень
+permissions = {
+    'add_admin': 5,
+    'remove_admin': 5,
+    'ban': 2,
+    'unban': 2,
+    'mute': 2,
+    'unmute': 2,
+    'warn': 1,
+    'setperm': 5
+}
+
 banned = set()
 muted = set()
 warns = {}
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
-def is_admin(user_id):
-    return user_id in admins or user_id == OWNER_ID
+def get_level(user_id):
+    if user_id == OWNER_ID:
+        return 5
+    return admin_levels.get(user_id, 0)
+
+def check_perm(user_id, command):
+    return get_level(user_id) >= permissions.get(command, 0)
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Привет! Я модерационный бот.")
+    bot.reply_to(msg, "Привет! Я модерационный бот с уровнями администрации.")
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(msg):
-    if msg.from_user.id != OWNER_ID:
-        return bot.reply_to(msg, "Только владелец бота может назначать админов.")
+    if not check_perm(msg.from_user.id, 'add_admin'):
+        return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
+    try:
+        level = int(msg.text.split()[1])
+    except:
+        return bot.reply_to(msg, "Укажите уровень (1–5): /add_admin <уровень> (ответом на сообщение)")
+    if level < 1 or level > 5:
+        return bot.reply_to(msg, "Уровень должен быть 1–5.")
     user_id = msg.reply_to_message.from_user.id
-    admins.add(user_id)
-    bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} теперь админ.")
+    admin_levels[user_id] = level
+    bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} назначен админом уровня {level}.")
 
 @bot.message_handler(commands=['remove_admin'])
 def remove_admin(msg):
-    if msg.from_user.id != OWNER_ID:
-        return bot.reply_to(msg, "Только владелец бота может снимать админов.")
+    if not check_perm(msg.from_user.id, 'remove_admin'):
+        return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
     user_id = msg.reply_to_message.from_user.id
-    admins.discard(user_id)
+    admin_levels.pop(user_id, None)
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} больше не админ.")
+
+@bot.message_handler(commands=['setperm'])
+def setperm(msg):
+    if not check_perm(msg.from_user.id, 'setperm'):
+        return bot.reply_to(msg, "Нет прав.")
+    parts = msg.text.split()
+    if len(parts) != 3:
+        return bot.reply_to(msg, "Использование: /setperm <команда> <уровень>")
+    command = parts[1].lower()
+    try:
+        level = int(parts[2])
+    except:
+        return bot.reply_to(msg, "Уровень должен быть числом 0–5.")
+    if level < 0 or level > 5:
+        return bot.reply_to(msg, "Уровень должен быть 0–5.")
+    permissions[command] = level
+    bot.reply_to(msg, f"Команда /{command} теперь доступна с уровня {level}.")
 
 @bot.message_handler(commands=['ban'])
 def ban(msg):
-    if not is_admin(msg.from_user.id):
+    if not check_perm(msg.from_user.id, 'ban'):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
     target_id = msg.reply_to_message.from_user.id
-    if is_admin(target_id):
-        return bot.reply_to(msg, "Нельзя банить администратора.")
+    if get_level(target_id) >= get_level(msg.from_user.id):
+        return bot.reply_to(msg, "Нельзя банить администратора с таким же или выше уровнем.")
     banned.add(target_id)
     try:
         bot.kick_chat_member(msg.chat.id, target_id)
@@ -56,7 +98,7 @@ def ban(msg):
 
 @bot.message_handler(commands=['unban'])
 def unban(msg):
-    if not is_admin(msg.from_user.id):
+    if not check_perm(msg.from_user.id, 'unban'):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
@@ -70,13 +112,13 @@ def unban(msg):
 
 @bot.message_handler(commands=['mute'])
 def mute(msg):
-    if not is_admin(msg.from_user.id):
+    if not check_perm(msg.from_user.id, 'mute'):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
     target_id = msg.reply_to_message.from_user.id
-    if is_admin(target_id):
-        return bot.reply_to(msg, "Нельзя мьютить администратора.")
+    if get_level(target_id) >= get_level(msg.from_user.id):
+        return bot.reply_to(msg, "Нельзя мьютить администратора с таким же или выше уровнем.")
     muted.add(target_id)
     try:
         bot.restrict_chat_member(
@@ -90,7 +132,7 @@ def mute(msg):
 
 @bot.message_handler(commands=['unmute'])
 def unmute(msg):
-    if not is_admin(msg.from_user.id):
+    if not check_perm(msg.from_user.id, 'unmute'):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
@@ -117,13 +159,13 @@ def unmute(msg):
 
 @bot.message_handler(commands=['warn'])
 def warn(msg):
-    if not is_admin(msg.from_user.id):
+    if not check_perm(msg.from_user.id, 'warn'):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
     target_id = msg.reply_to_message.from_user.id
-    if is_admin(target_id):
-        return bot.reply_to(msg, "Нельзя выдавать предупреждения администратору.")
+    if get_level(target_id) >= get_level(msg.from_user.id):
+        return bot.reply_to(msg, "Нельзя предупреждать администратора с таким же или выше уровнем.")
     warns[target_id] = warns.get(target_id, 0) + 1
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} получил предупреждение ({warns[target_id]}).")
 
