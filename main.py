@@ -44,10 +44,12 @@ def ban(msg):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
-    user_id = msg.reply_to_message.from_user.id
-    banned.add(user_id)
+    target_id = msg.reply_to_message.from_user.id
+    if is_admin(target_id):
+        return bot.reply_to(msg, "Нельзя банить администратора.")
+    banned.add(target_id)
     try:
-        bot.kick_chat_member(msg.chat.id, user_id)
+        bot.kick_chat_member(msg.chat.id, target_id)
     except Exception as e:
         print(e)
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} забанен.")
@@ -58,10 +60,10 @@ def unban(msg):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
-    user_id = msg.reply_to_message.from_user.id
-    banned.discard(user_id)
+    target_id = msg.reply_to_message.from_user.id
+    banned.discard(target_id)
     try:
-        bot.unban_chat_member(msg.chat.id, user_id)
+        bot.unban_chat_member(msg.chat.id, target_id)
     except Exception as e:
         print(e)
     bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} разбанен.")
@@ -72,12 +74,14 @@ def mute(msg):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
-    user_id = msg.reply_to_message.from_user.id
-    muted.add(user_id)
+    target_id = msg.reply_to_message.from_user.id
+    if is_admin(target_id):
+        return bot.reply_to(msg, "Нельзя мьютить администратора.")
+    muted.add(target_id)
     try:
         bot.restrict_chat_member(
             msg.chat.id,
-            user_id,
+            target_id,
             permissions=types.ChatPermissions(can_send_messages=False)
         )
     except Exception as e:
@@ -90,12 +94,12 @@ def unmute(msg):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
-    user_id = msg.reply_to_message.from_user.id
-    muted.discard(user_id)
+    target_id = msg.reply_to_message.from_user.id
+    muted.discard(target_id)
     try:
         bot.restrict_chat_member(
             msg.chat.id,
-            user_id,
+            target_id,
             permissions=types.ChatPermissions(
                 can_send_messages=True,
                 can_send_media_messages=True,
@@ -117,9 +121,11 @@ def warn(msg):
         return bot.reply_to(msg, "Нет прав.")
     if not msg.reply_to_message:
         return bot.reply_to(msg, "Ответьте на сообщение пользователя.")
-    user_id = msg.reply_to_message.from_user.id
-    warns[user_id] = warns.get(user_id, 0) + 1
-    bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} получил предупреждение ({warns[user_id]}).")
+    target_id = msg.reply_to_message.from_user.id
+    if is_admin(target_id):
+        return bot.reply_to(msg, "Нельзя выдавать предупреждения администратору.")
+    warns[target_id] = warns.get(target_id, 0) + 1
+    bot.reply_to(msg, f"Пользователь @{msg.reply_to_message.from_user.username} получил предупреждение ({warns[target_id]}).")
 
 @bot.message_handler(func=lambda m: True)
 def check_user(msg):
